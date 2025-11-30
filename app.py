@@ -39,9 +39,18 @@ st.markdown(
 # -----------------------------
 df = pd.read_csv("cleaned.csv")
 
+# الأعمدة التفسيرية (نفس اللي استخدمتها في التدريب)
+FEATURE_COLS = [
+    'Age_band_of_driver', 'Sex_of_driver', 'Educational_level',
+    'Vehicle_driver_relation', 'Driving_experience', 'Lanes_or_Medians',
+    'Types_of_Junction', 'Road_surface_type', 'Light_conditions',
+    'Weather_conditions', 'Type_of_collision', 'Vehicle_movement',
+    'Pedestrian_movement', 'Cause_of_accident'
+]
+
 # نفس الترميز اللي اتدرّب عليه الموديل: get_dummies(drop_first=True)
-X_train_like = pd.get_dummies(df.drop("Accident_severity", axis=1), drop_first=True)
-feature_columns = X_train_like.columns
+X_train_like = pd.get_dummies(df[FEATURE_COLS], drop_first=True)
+feature_columns = X_train_like.columns  # الأعمدة اللي الموديل متعود عليها
 
 # Load XGBoost model from JSON
 model = xgb.XGBClassifier()
@@ -53,8 +62,8 @@ model.load_model("xgb_accident_model.json")
 # -----------------------------
 def preprocess_user_input(user_input_dict):
     """
-    Converts raw user inputs (categorical) to the same one-hot encoded
-    format used during training, and aligns columns.
+    يحوّل الـ inputs الcategorical لـ one-hot encoded
+    بنفس شكل الداتا وقت التدريب، ويعمل reindex على الأعمدة.
     """
     input_df = pd.DataFrame([user_input_dict])
     input_encoded = pd.get_dummies(input_df, drop_first=True)
