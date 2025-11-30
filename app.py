@@ -49,7 +49,7 @@ def load_data():
 
 @st.cache_resource
 def load_model_and_columns():
-    with open("xgboost_model.pkl", "rb") as f:
+    with open("xgboost-model.pkl", "rb") as f:
         model = pickle.load(f)
 
     df = load_data()
@@ -212,3 +212,4 @@ if submitted:
     )
 
 st.markdown('</div>', unsafe_allow_html=True)
+
