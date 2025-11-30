@@ -23,35 +23,10 @@ st.set_page_config(
 # =========================
 @st.cache_resource
 def load_model():
-    model = None
-    possible_names = ["traffic_model.pkl", "lightgbm_model.pkl"]
-    last_error = None
-
-    for fname in possible_names:
-        try:
-            with open(fname, "rb") as f:
-                model = pickle.load(f)
-            print(f"✅ Loaded model from: {fname}")
-            break
-        except FileNotFoundError as e:
-            last_error = e
-            continue
-        except Exception as e:
-            last_error = e
-            continue
-
-    if model is None:
-        st.error(
-            "❌ Could not load the model file.\n\n"
-            "Make sure that **'traffic_model.pkl'** or **'lightgbm_model.pkl'** "
-            "exists in the app directory and was saved with pickle."
-        )
-        if last_error is not None:
-            st.exception(last_error)
-        st.stop()
-
+    # غيّر الاسم لو ملف الموديل عندك اسمه مختلف
+    with open("lightgbm_model.pkl", "rb") as f:
+        model = pickle.load(f)
     return model
-
 
 model = load_model()
 
