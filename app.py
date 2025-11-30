@@ -54,7 +54,7 @@ feature_columns = X_train_like.columns  # الأعمدة اللي الموديل
 
 # Load XGBoost model from JSON
 model = xgb.XGBClassifier()
-model.load_model("xgb_accident_model.json")
+model.load_model("xgboost_model.json")
 
 
 # -----------------------------
@@ -190,3 +190,4 @@ if predict_btn:
     )
 
 st.markdown('</div>', unsafe_allow_html=True)
+
