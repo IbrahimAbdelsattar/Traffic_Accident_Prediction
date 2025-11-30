@@ -19,7 +19,7 @@ st.set_page_config(
 @st.cache_resource
 def load_model():
     # غيّر اسم الملف حسب الموديل بتاعك
-    with open("traffic_model.pkl", "rb") as f:
+    with open("lightgbm_model.pkl", "rb") as f:
         model = pickle.load(f)
     return model
 
