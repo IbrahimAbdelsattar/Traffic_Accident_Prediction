@@ -4,6 +4,10 @@ import numpy as np
 import pickle
 import datetime as dt
 
+# مهم عشان الـ pickle يقدر يفك موديل LightGBM
+import lightgbm  # noqa: F401  (مجرد import عشان الpickle يعرف الكلاسات)
+
+
 # =========================
 # Page Config
 # =========================
@@ -13,17 +17,44 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # =========================
 # Load Model
 # =========================
 @st.cache_resource
 def load_model():
-    # غيّر اسم الملف حسب الموديل بتاعك
-    with open("lightgbm_model.pkl", "rb") as f:
-        model = pickle.load(f)
+    model = None
+    possible_names = ["traffic_model.pkl", "lightgbm_model.pkl"]
+    last_error = None
+
+    for fname in possible_names:
+        try:
+            with open(fname, "rb") as f:
+                model = pickle.load(f)
+            print(f"✅ Loaded model from: {fname}")
+            break
+        except FileNotFoundError as e:
+            last_error = e
+            continue
+        except Exception as e:
+            last_error = e
+            continue
+
+    if model is None:
+        st.error(
+            "❌ Could not load the model file.\n\n"
+            "Make sure that **'traffic_model.pkl'** or **'lightgbm_model.pkl'** "
+            "exists in the app directory and was saved with pickle."
+        )
+        if last_error is not None:
+            st.exception(last_error)
+        st.stop()
+
     return model
 
+
 model = load_model()
+
 
 # =========================
 # Sidebar - Project Info
@@ -32,20 +63,22 @@ st.sidebar.title("📊 Project Overview")
 st.sidebar.markdown(
     """
     ### UK Traffic and Accidents Dataset (2000–2016)
+
     This app uses a machine learning model trained on UK police-reported accident data (2005–2014)  
     to **predict accident severity or risk patterns** based on:
-    
+
     - Traffic & road features  
     - Weather & light conditions  
     - Urban/rural characteristics  
     - Date & time information  
-    
+
     Data source: UK Department of Transport (Open Government Licence).
     """
 )
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("👨‍💻 Built by: **Ibrahim Abdelsattar**")
+
 
 # =========================
 # Main Title
@@ -57,6 +90,7 @@ st.markdown(
     Fill in the details about **location, road, environment, and time**, then click **Predict**.
     """
 )
+
 
 # =========================
 # Centered Input Form
@@ -75,23 +109,23 @@ with center_col:
             Location_Easting_OSGR = st.number_input(
                 "Location Easting OSGR",
                 value=443940.0,
-                help="OSGR easting coordinate of the accident location"
+                help="OSGR easting coordinate of the accident location",
             )
             Longitude = st.number_input(
                 "Longitude",
                 value=-1.349860,
-                format="%.6f"
+                format="%.6f",
             )
         with col_loc2:
             Location_Northing_OSGR = st.number_input(
                 "Location Northing OSGR",
                 value=262705.0,
-                help="OSGR northing coordinate of the accident location"
+                help="OSGR northing coordinate of the accident location",
             )
             Latitude = st.number_input(
                 "Latitude",
                 value=52.249074,
-                format="%.6f"
+                format="%.6f",
             )
 
         st.markdown("---")
@@ -105,16 +139,15 @@ with center_col:
         default_time = dt.time(17, 0)
         accident_time = st.time_input("Time of Accident", value=default_time)
 
-        # مشتقات التاريخ والوقت
         Year = accident_date.year
         Month = accident_date.month
         Day = accident_date.day
-        Day_of_Week = accident_date.strftime("%A")  # e.g. Monday, Tuesday...
+        Day_of_Week = accident_date.strftime("%A")
 
         Hour = accident_time.hour
         Minute = accident_time.minute
 
-        # cyclical encoding للوقت (حسب الساعة فقط كما في الداتا)
+        # cyclical encoding للساعة (24 ساعة)
         angle = 2 * np.pi * Hour / 24
         Time_sin = float(np.sin(angle))
         Time_cos = float(np.cos(angle))
@@ -137,7 +170,7 @@ with center_col:
                 max_value=99,
                 value=1,
                 step=1,
-                help="Numeric code identifying the police authority"
+                help="Numeric code identifying the police authority",
             )
 
             Number_of_Vehicles = st.number_input(
@@ -145,7 +178,7 @@ with center_col:
                 min_value=1,
                 max_value=70,
                 value=2,
-                step=1
+                step=1,
             )
 
             Number_of_Casualties = st.number_input(
@@ -153,13 +186,13 @@ with center_col:
                 min_value=1,
                 max_value=100,
                 value=1,
-                step=1
+                step=1,
             )
 
             Speed_limit = st.selectbox(
                 "Speed Limit (mph)",
                 options=[10, 15, 20, 30, 40, 50, 60, 70],
-                index=3  # 30 mph by default
+                index=3,  # 30 mph
             )
 
             Road_Type = st.selectbox(
@@ -170,8 +203,8 @@ with center_col:
                     "Roundabout",
                     "One way street",
                     "Slip road",
-                    "Unknown"
-                ]
+                    "Unknown",
+                ],
             )
 
         with col_rt2:
@@ -180,14 +213,14 @@ with center_col:
                 first_road_class = st.selectbox(
                     "1st Road Class",
                     options=[1, 2, 3, 4, 5, 6],
-                    index=2
+                    index=2,
                 )
             with col_rc2:
                 first_road_number = st.number_input(
                     "1st Road Number",
                     min_value=0,
                     value=0,
-                    step=1
+                    step=1,
                 )
 
             col_sr1, col_sr2 = st.columns(2)
@@ -196,14 +229,14 @@ with center_col:
                     "2nd Road Class",
                     options=[-1, 1, 2, 3, 4, 5, 6],
                     index=0,
-                    help="-1 means no second road"
+                    help="-1 means no second road",
                 )
             with col_sr2:
                 second_road_number = st.number_input(
                     "2nd Road Number",
                     min_value=-1,
                     value=0,
-                    step=1
+                    step=1,
                 )
 
             Junction_Control = st.selectbox(
@@ -212,8 +245,8 @@ with center_col:
                     "Giveway or uncontrolled",
                     "Automatic traffic signal",
                     "Stop Sign",
-                    "Authorised person"
-                ]
+                    "Authorised person",
+                ],
             )
 
         st.markdown("---")
@@ -226,20 +259,20 @@ with center_col:
             local_auth_district = st.text_input(
                 "Local Authority (District) Code",
                 value="300",
-                help="e.g. 300, 204, 102..."
+                help="e.g. 300, 204, 102...",
             )
 
             local_auth_highway = st.text_input(
                 "Local Authority (Highway) Code",
                 value="E10000016",
-                help="e.g. E10000016, E10000030..."
+                help="e.g. E10000016, E10000030...",
             )
 
         with col_ad2:
             lsoa_code = st.text_input(
                 "LSOA of Accident Location",
                 value="E01018648",
-                help="e.g. E01018648..."
+                help="e.g. E01018648...",
             )
 
         st.markdown("---")
@@ -258,7 +291,7 @@ with center_col:
                     "Darkeness: No street lighting",
                     "Darkness: Street lighting unknown",
                     "Darkness: Street lights present but unlit",
-                ]
+                ],
             )
 
             Weather_Conditions = st.selectbox(
@@ -273,7 +306,7 @@ with center_col:
                     "snowing without high winds",
                     "fog or mist",
                     "snowing with high winds",
-                ]
+                ],
             )
 
             Road_Surface_Conditions = st.selectbox(
@@ -284,7 +317,7 @@ with center_col:
                     "Frost/Ice",
                     "Snow",
                     "Flood (Over 3cm of water)",
-                ]
+                ],
             )
 
         with col_env2:
@@ -294,7 +327,7 @@ with center_col:
                     "None within 50 metres",
                     "Control by other authorised person",
                     "Control by school crossing patrol",
-                ]
+                ],
             )
 
             Ped_Physical = st.selectbox(
@@ -306,19 +339,19 @@ with center_col:
                     "Zebra crossing",
                     "Central refuge",
                     "Footbridge or subway",
-                ]
+                ],
             )
 
             Urban_or_Rural_Area = st.selectbox(
                 "Urban or Rural Area",
                 options=[1, 2, 3],
                 index=0,
-                help="1=Urban, 2=Rural, 3=Unallocated"
+                help="1 = Urban, 2 = Rural, 3 = Unallocated",
             )
 
             Did_Police_Officer_Attend_Scene_of_Accident = st.selectbox(
                 "Did a Police Officer Attend the Scene?",
-                options=["Yes", "No"]
+                options=["Yes", "No"],
             )
 
         # ---------- Submit Button ----------
@@ -328,10 +361,8 @@ with center_col:
     # Build Feature Row & Predict
     # =========================
     if submitted:
-        # Date in YYYY-MM-DD format (as in your dataset)
         Date_str = accident_date.strftime("%Y-%m-%d")
 
-        # IMPORTANT: لازم الأعمدة تكون بنفس أسماء وترتيب التدريب
         input_data = {
             "Location_Easting_OSGR": Location_Easting_OSGR,
             "Location_Northing_OSGR": Location_Northing_OSGR,
@@ -369,13 +400,11 @@ with center_col:
             "Time_cos": Time_cos,
         }
 
-        # Convert to DataFrame (single row)
         input_df = pd.DataFrame([input_data])
 
         st.markdown("### 🔍 Input Summary")
         st.dataframe(input_df)
 
-        # Make prediction
         try:
             y_pred = model.predict(input_df)[0]
 
@@ -387,7 +416,7 @@ with center_col:
                 probs = model.predict_proba(input_df)[0]
                 prob_df = pd.DataFrame(
                     [probs],
-                    columns=[f"Class {c}" for c in range(len(probs))]
+                    columns=[f"Class {c}" for c in range(len(probs))],
                 )
                 st.markdown("### 📈 Class Probabilities")
                 st.dataframe(prob_df)
