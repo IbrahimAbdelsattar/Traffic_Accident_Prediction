@@ -1,193 +1,135 @@
+# app.py
 import streamlit as st
 import pandas as pd
-import xgboost as xgb
+import numpy as np
+import joblib
+import pickle
+import os
 
-# -----------------------------
-# Page Config
-# -----------------------------
-st.set_page_config(
-    page_title="Road Accident Severity Predictor",
-    page_icon="🛣️",
-    layout="wide"
-)
+st.set_page_config(page_title="Traffic Accident Prediction", layout="centered")
 
-# بسيط لتوسيط البوكس
-st.markdown(
-    """
-    <style>
-    .main-block {
-        max-width: 900px;
-        margin-left: auto;
-        margin-right: auto;
-        padding: 1.5rem;
-        background-color: #ffffff;
-        border-radius: 10px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.06);
-    }
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        font-weight: 600;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+MODEL_PATHS = ["models/model.pkl", "model.pkl", "models/model.joblib", "model.joblib"]
 
-# -----------------------------
-# Load Data & Model
-# -----------------------------
-df = pd.read_csv("cleaned.csv")
+@st.cache_resource
+def load_model():
+    for p in MODEL_PATHS:
+        if os.path.exists(p):
+            try:
+                # try joblib first
+                model = joblib.load(p)
+                return model, p
+            except Exception:
+                try:
+                    with open(p, "rb") as f:
+                        model = pickle.load(f)
+                    return model, p
+                except Exception:
+                    st.warning(f"Found {p} but couldn't load it. Ensure it is a pickled/sklearn model.")
+    return None, None
 
-# الأعمدة التفسيرية (نفس اللي استخدمتها في التدريب)
-FEATURE_COLS = [
-    'Age_band_of_driver', 'Sex_of_driver', 'Educational_level',
-    'Vehicle_driver_relation', 'Driving_experience', 'Lanes_or_Medians',
-    'Types_of_Junction', 'Road_surface_type', 'Light_conditions',
-    'Weather_conditions', 'Type_of_collision', 'Vehicle_movement',
-    'Pedestrian_movement', 'Cause_of_accident'
-]
+def get_feature_names(model):
+    # scikit-learn 1.0+ uses feature_names_in_
+    if hasattr(model, "feature_names_in_"):
+        try:
+            return list(model.feature_names_in_)
+        except Exception:
+            pass
+    # some pipelines keep feature names in named_steps or preprocessor; user may need to provide features.txt
+    return None
 
-# نفس الترميز اللي اتدرّب عليه الموديل: get_dummies(drop_first=True)
-X_train_like = pd.get_dummies(df[FEATURE_COLS], drop_first=True)
-feature_columns = X_train_like.columns  # الأعمدة اللي الموديل متعود عليها
+def predict_dataframe(model, df):
+    # Ensure ordering if model has feature_names_in_
+    fn = get_feature_names(model)
+    if fn:
+        missing = [c for c in fn if c not in df.columns]
+        if missing:
+            raise ValueError(f"Input is missing features: {missing}")
+        df = df[fn]
+    # try predict_proba else predict
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(df)
+        preds = model.predict(df)
+        return pd.DataFrame({
+            "prediction": preds,
+            "probability": [p.max() for p in probs]
+        })
+    else:
+        preds = model.predict(df)
+        return pd.DataFrame({"prediction": preds})
 
-# Load XGBoost model from JSON
-model = xgb.XGBClassifier()
-model.load_model("xgboost_model.json")
+st.title("Traffic Accident Prediction")
+st.write("A small Streamlit UI to run predictions with your trained model. Upload a model at `models/model.pkl` or `model.pkl` in the repository, or use the file uploader below.")
 
+model, model_path = load_model()
+if model is None:
+    st.error("No model file found. Place a pickled sklearn model at one of: " + ", ".join(MODEL_PATHS))
+    st.info("If you don't have a saved model yet, train/export one and save it as `models/model.pkl` or `model.pkl`. A typical way: `joblib.dump(your_model, 'models/model.pkl')`.")
+else:
+    st.success(f"Loaded model from: {model_path}")
 
-# -----------------------------
-# Helper: preprocess user input
-# -----------------------------
-def preprocess_user_input(user_input_dict):
-    """
-    يحوّل الـ inputs الcategorical لـ one-hot encoded
-    بنفس شكل الداتا وقت التدريب، ويعمل reindex على الأعمدة.
-    """
-    input_df = pd.DataFrame([user_input_dict])
-    input_encoded = pd.get_dummies(input_df, drop_first=True)
-    input_encoded = input_encoded.reindex(columns=feature_columns, fill_value=0)
-    return input_encoded
+    # attempt to get feature names
+    features = get_feature_names(model)
+    if features:
+        st.sidebar.write("Detected feature names for the model:")
+        st.sidebar.write(features)
+    else:
+        st.sidebar.info("Feature names not detected automatically. You can upload a CSV for batch prediction or paste a single-row CSV/JSON with matching columns.")
 
+    mode = st.radio("Mode", ("Single prediction (manual)", "Batch prediction (CSV upload)"))
 
-# -----------------------------
-# Header
-# -----------------------------
-st.markdown(
-    """
-    <div style="text-align: center; margin-bottom: 1rem;">
-        <h1>🛣️ Road Accident Severity Predictor</h1>
-        <p style="font-size: 0.95rem; color: #555;">
-            Estimate the severity of a road accident using driver, vehicle, road, and environment information.
-            The model is trained on real accident data from Addis Ababa.
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+    if mode.startswith("Single"):
+        if features:
+            st.subheader("Enter feature values")
+            inputs = {}
+            with st.form("single_form"):
+                for f in features:
+                    # create numeric input; if column name contains 'hour' or 'time', allow float; otherwise float default
+                    inputs[f] = st.number_input(label=f, format="%.6f", key=f)
+                submitted = st.form_submit_button("Predict")
+            if submitted:
+                df = pd.DataFrame([inputs])
+                try:
+                    out = predict_dataframe(model, df)
+                    st.write("Prediction result")
+                    st.table(out)
+                except Exception as e:
+                    st.error(f"Prediction failed: {e}")
+        else:
+            st.subheader("Provide one-row input (CSV row or JSON)")
+            st.info("Enter a single-row CSV header+row or a JSON object with feature names as keys.")
+            raw = st.text_area("CSV row (header + single row) or JSON", height=200, placeholder='e.g.\ncol1,col2,col3\n1,2,3\n\nor\n{"col1":1, "col2":2, "col3":3}')
+            if st.button("Predict from text"):
+                try:
+                    if raw.strip().startswith("{"):
+                        obj = pd.json_normalize(pd.read_json(raw, typ='series'))
+                        df = pd.DataFrame([obj])
+                    else:
+                        from io import StringIO
+                        df = pd.read_csv(StringIO(raw))
+                        # if user gave header+row it's fine; if just values, this may fail
+                    out = predict_dataframe(model, df)
+                    st.write("Prediction result")
+                    st.table(out)
+                except Exception as e:
+                    st.error(f"Failed to parse or predict: {e}")
 
-st.markdown('<div class="main-block">', unsafe_allow_html=True)
-st.subheader("📋 Enter Accident Details")
+    else:
+        st.subheader("Upload CSV for batch prediction")
+        uploaded = st.file_uploader("Upload a CSV with columns matching training features", type=["csv"])
+        if uploaded is not None:
+            try:
+                df = pd.read_csv(uploaded)
+                out = predict_dataframe(model, df)
+                result = pd.concat([df.reset_index(drop=True), out.reset_index(drop=True)], axis=1)
+                st.success("Predictions completed")
+                st.dataframe(result)
+                csv = result.to_csv(index=False).encode('utf-8')
+                st.download_button("Download results CSV", csv, "predictions.csv", "text/csv")
+            except Exception as e:
+                st.error(f"Prediction failed: {e}")
 
-# -----------------------------
-# Options from dataset
-# -----------------------------
-def ops(col):
-    return sorted(df[col].dropna().unique().tolist())
-
-age_options        = ops("Age_band_of_driver")
-sex_options        = ops("Sex_of_driver")
-edu_options        = ops("Educational_level")
-rel_options        = ops("Vehicle_driver_relation")
-exp_options        = ops("Driving_experience")
-lane_options       = ops("Lanes_or_Medians")
-junc_options       = ops("Types_of_Junction")
-surface_options    = ops("Road_surface_type")
-light_options      = ops("Light_conditions")
-weather_options    = ops("Weather_conditions")
-collision_options  = ops("Type_of_collision")
-veh_move_options   = ops("Vehicle_movement")
-ped_move_options   = ops("Pedestrian_movement")
-cause_options      = ops("Cause_of_accident")
-
-# -----------------------------
-# Centered Form
-# -----------------------------
-_, form_col, _ = st.columns([1, 3, 1])
-
-with form_col:
-    st.markdown("### 👤 Driver & Vehicle Info")
-    c1, c2 = st.columns(2)
-    with c1:
-        age_band = st.selectbox("Age band of driver", age_options)
-        sex      = st.selectbox("Sex of driver", sex_options)
-        edu      = st.selectbox("Educational level", edu_options)
-    with c2:
-        relation   = st.selectbox("Vehicle-driver relation", rel_options)
-        experience = st.selectbox("Driving experience", exp_options)
-
-    st.markdown("---")
-    st.markdown("### 🛣️ Road & Environment")
-    c3, c4 = st.columns(2)
-    with c3:
-        lanes    = st.selectbox("Lanes or medians", lane_options)
-        junction = st.selectbox("Type of junction", junc_options)
-        surface  = st.selectbox("Road surface type", surface_options)
-    with c4:
-        light   = st.selectbox("Light conditions", light_options)
-        weather = st.selectbox("Weather conditions", weather_options)
-
-    st.markdown("---")
-    st.markdown("### 🚗 Movements & Collision")
-    c5, c6 = st.columns(2)
-    with c5:
-        veh_move = st.selectbox("Vehicle movement", veh_move_options)
-        ped_move = st.selectbox("Pedestrian movement", ped_move_options)
-    with c6:
-        collision = st.selectbox("Type of collision", collision_options)
-        cause     = st.selectbox("Cause of accident", cause_options)
-
-    st.markdown("---")
-    predict_btn = st.button("🔍 Predict Accident Severity")
-
-# -----------------------------
-# Prediction
-# -----------------------------
-if predict_btn:
-    user_input = {
-        "Age_band_of_driver": age_band,
-        "Sex_of_driver": sex,
-        "Educational_level": edu,
-        "Vehicle_driver_relation": relation,
-        "Driving_experience": experience,
-        "Lanes_or_Medians": lanes,
-        "Types_of_Junction": junction,
-        "Road_surface_type": surface,
-        "Light_conditions": light,
-        "Weather_conditions": weather,
-        "Type_of_collision": collision,
-        "Vehicle_movement": veh_move,
-        "Pedestrian_movement": ped_move,
-        "Cause_of_accident": cause
-    }
-
-    X_input = preprocess_user_input(user_input)
-    pred = model.predict(X_input)[0]
-
-    severity_map = {
-        0: "Fatal injury",
-        1: "Serious injury",
-        2: "Slight injury"
-    }
-    severity_text = severity_map.get(int(pred), "Unknown")
-
-    st.markdown("### 🧮 Prediction Result")
-    st.success(f"Predicted Accident Severity: **{severity_text}** (class {pred})")
-    st.info(
-        "⚠️ This prediction is based on a machine learning model trained on historical data. "
-        "It should be used for analysis and educational purposes only."
-    )
-
-st.markdown('</div>', unsafe_allow_html=True)
-
+st.markdown("---")
+st.write("Notes:")
+st.write("- Make sure the model expects the same feature columns and preprocessing used at training time.")
+st.write("- If your model is a pipeline (preprocessor + estimator), saving the whole pipeline with joblib/pickle is recommended.")
+st.write("- To deploy on Streamlit Cloud: push this repo and connect it in https://share.streamlit.io/ (see README).")
