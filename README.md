@@ -23,6 +23,30 @@ A Streamlit accident severity demo that reconstructs its one-hot feature schema 
 
 Both `cleaned.csv` and `xgboost_model.json` are needed at startup. Changing category values or the reference CSV can change the encoded schema and invalidate compatibility with the trained model. Additional pickle exports are committed, but the current app loads the JSON model.
 
+## UML diagrams
+
+### Main workflow
+
+The application reconstructs its dummy-column schema from cleaned.csv, then aligns each submitted row to that schema before prediction.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant App as Streamlit app.py
+    participant Schema as cleaned.csv schema
+    participant Frame as pandas dummy features
+    participant Model as Saved XGBoost model
+    App->>Schema: Read categorical options and feature columns
+    Schema-->>App: Training dummy-column order
+    User->>App: Submit accident attributes
+    App->>Frame: get_dummies with drop_first
+    App->>Frame: Reindex to training columns
+    Frame-->>App: Aligned numeric row
+    App->>Model: predict
+    Model-->>App: Severity class
+    App-->>User: Display predicted severity
+```
+
 ## Getting started
 
 ```bash
